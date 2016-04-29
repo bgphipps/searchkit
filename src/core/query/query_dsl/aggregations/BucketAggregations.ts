@@ -15,6 +15,12 @@ export function TermsBucket(key, field, options:TermsBucketOptions={}, ...childA
   }, childAggs)
 }
 
+export function DateHistogramBucketBucket(key, field, options:TermsBucketOptions={}, ...childAggs){
+  return AggsContainer(key, {
+    date_histogram:assign({field}, options)
+  }, childAggs)
+}
+
 export function RangeBucket(key, field, ranges, ...childAggs){
   return AggsContainer(key, {
     range:{

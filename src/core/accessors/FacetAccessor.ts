@@ -1,9 +1,9 @@
 import {ArrayState} from "../state"
 import {FilterBasedAccessor} from "./FilterBasedAccessor"
 import {
-  TermQuery, TermsBucket, CardinalityMetric,
+  TermQuery, RangeQuery, TermsBucket, CardinalityMetric,
   BoolShould, BoolMust, SelectedFilter,
-  FilterBucket, NestedBucket
+  FilterBucket, NestedBucket, DateHistogramBucketBucket
 } from "../query";
 const assign = require("lodash/assign")
 const map = require("lodash/map")
@@ -15,7 +15,7 @@ export interface FacetAccessorOptions {
   operator?:string
   title?:string
   id?:string
-  fieldOptions?: {type: string, terms: Array<string>}
+  fieldOptions?:{type: string, terms: Array<string>}
   size:number
   facetsPerPage?:number
   translations?:Object
@@ -66,7 +66,6 @@ export class FacetAccessor extends FilterBasedAccessor<ArrayState> {
 
   getBuckets(){
     if (this.queryType == "nested") {
-      console.log(this.getAggregations([this.uuid, this.key, this.nestedTerms[0], "buckets"], []))
       let buckets = this.getAggregations([this.uuid, this.key, this.nestedTerms[0], "buckets"], [])
       buckets = buckets.map((elem) => {
         const nestedTerm = this.nestedTerms[1]
@@ -76,9 +75,22 @@ export class FacetAccessor extends FilterBasedAccessor<ArrayState> {
           label: elem[nestedTerm].buckets[0].key
         }
       })
-      return buckets 
+      return buckets
     }
-    return this.getAggregations([this.uuid, this.key, "buckets"], [])
+    else if (this.queryType == "dateHistogram") {
+      let buckets = this.getAggregations([this.uuid, this.key, "buckets"], [])
+      buckets = buckets.map((elem) => {
+        return {
+          doc_count: elem.doc_count,
+          key: elem.key_as_string,
+          label: elem.key_as_string
+        }
+      })
+      return buckets
+    }
+    else {
+      return this.getAggregations([this.uuid, this.key, "buckets"], [])
+    }
   }
 
   getDocCount(){
@@ -133,7 +145,21 @@ export class FacetAccessor extends FilterBasedAccessor<ArrayState> {
   buildSharedQuery(query){
     var filters = this.state.getValue()
     var term = this.queryType == "nested" ? this.nestedTerms[0] : this.key
-    var filterTerms = map(filters, TermQuery.bind(null, term))
+    if(this.queryType == "dateHistogram"){
+      var dateFormat = this.nestedTerms[1]
+      var customFilters = map(filters, (i) => {
+          return {
+              lte: i+`||+1d`,
+              gte: i+`||-1d`,
+              format: dateFormat
+          }
+      }
+    )
+      var filterTerms = map(customFilters, RangeQuery.bind(null, term))
+    } else  {
+      var filterTerms = map(filters, TermQuery.bind(null, term))
+    }
+
     var selectedFilters:Array<SelectedFilter> = map(filters, (filter)=> {
       return {
         name:this.options.title || this.translate(this.key),
@@ -185,6 +211,23 @@ export class FacetAccessor extends FilterBasedAccessor<ArrayState> {
             nestedTerms,
             CardinalityMetric(this.key+"_count", this.key)
           )))
+    }
+    else if (this.queryType == "dateHistogram") {
+      var filters = this.state.getValue()
+      let excludedKey = (this.isOrOperator()) ? this.uuid : undefined
+      const dateGrouping = this.nestedTerms[0]
+      const dateFormat = this.nestedTerms[1]
+      return query
+        .setAggs(FilterBucket(
+          this.uuid,
+          query.getFiltersWithoutKeys(excludedKey),
+          DateHistogramBucketBucket(this.key, this.key, omitBy({
+            field: this.key,
+            interval: dateGrouping,
+            format: dateFormat,
+            min_doc_count: 1
+          }, CardinalityMetric(this.key+"_count", this.key)))
+        ))
     }
     else {
       var filters = this.state.getValue()

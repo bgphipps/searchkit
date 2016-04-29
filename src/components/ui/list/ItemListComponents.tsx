@@ -51,7 +51,6 @@ export class AbstractItemList extends React.Component<ItemListProps, {}> {
     const toggleFunc = multiselect ? toggleItem : (key => setItems([key]))
 
     const actions = map(items, (option) => {
-      console.log(option)
       const label = option.title || option.label || option.key
       return React.createElement(itemComponent, {
         label: translate(label),
